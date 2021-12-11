@@ -1,17 +1,29 @@
 //! A 2d story-driven platformer with rpg-elements created by ComLarsic
-use std::{cell::{RefCell, RefMut}, rc::Rc};
+use std::{
+    cell::{RefCell, RefMut},
+    rc::Rc,
+};
 
-use macroquad::{prelude::*, ui::{root_ui, widgets::Window}, hash};
+use futures::executor::block_on;
+use macroquad::{
+    hash,
+    prelude::*,
+    ui::{root_ui, widgets::Window},
+};
 use player::Player;
-use world::World;
+use world::{Tile, TileMap, World};
 
-pub mod world;
 pub mod player;
+pub mod world;
 
 /** Handles the game struct */
 pub struct Game {
+    // The render target resolution
+    pub target_resolution: (f32, f32),
+    // The render target
+    pub render_target: RenderTarget,
     // The game state
-    pub state: GameState, 
+    pub state: GameState,
     // The game world
     world: Rc<RefCell<World>>,
 }
@@ -31,9 +43,15 @@ pub enum GameState {
 
 impl Game {
     pub fn new() -> Self {
+        // Create the render target
+        let render_target = render_target(1280, 720);
+        render_target.texture.set_filter(FilterMode::Nearest);
+        
         return Self {
+            target_resolution: (1280.0, 720.0),
+            render_target,
             state: GameState::Startup,
-            world: Rc::new(RefCell::new(World::new())),
+            world: Rc::new(RefCell::new(World::new(render_target))),
         };
     }
 
@@ -44,31 +62,117 @@ impl Game {
             GameState::Startup => {
                 // Set the state to gameplay
                 self.state = GameState::TitleScreen;
-            },
+            }
             GameState::Loading => {
                 // Load the first scene
                 let world = self.world.clone();
                 let mut world = world.borrow_mut();
-                world.load_level(world::Level { 
+                block_on(world.load_level(world::Level {
                     player: Some(Player::default()),
-                });
+                    tilemaps: vec![(
+                        "assets/tilesets/grass_tiles.png".into(),
+                        16.0,
+                        vec![
+                            vec![],
+                            vec![
+                                Some(Tile {
+                                    location: (0, 0),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (1, 0),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (1, 0),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (2, 0),
+                                    collision: true,
+                                }),
+                                None,
+                                None,
+                                None,
+                                Some(Tile {
+                                    location: (0, 0),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (2, 0),
+                                    collision: true,
+                                }),
+                            ],
+                            vec![
+                                Some(Tile {
+                                    location: (0, 1),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (1, 1),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (1, 1),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (2, 1),
+                                    collision: true,
+                                }),
+                                None,
+                                None,
+                                None,
+                                Some(Tile {
+                                    location: (0, 2),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (2, 2),
+                                    collision: true,
+                                }),
+                            ],
+                            vec![
+                                Some(Tile {
+                                    location: (0, 2),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (1, 2),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (1, 2),
+                                    collision: true,
+                                }),
+                                Some(Tile {
+                                    location: (2, 2),
+                                    collision: true,
+                                }),
+                                None,
+                                None,
+                                None,
+                            ]
+                        ],
+                    )],
+                }));
                 // Set the gameplay state
                 self.state = GameState::Gameplay;
-            },
+            }
             GameState::TitleScreen => {
                 if is_key_down(KeyCode::Enter) {
                     self.state = GameState::Loading;
                 }
-            },
+            }
             GameState::Gameplay => {
                 // Update the world
                 let world = self.world.clone();
                 let mut world = world.borrow_mut();
                 world.update(self);
-            },
-            GameState::Menu => {},
-            GameState::Cutscene => {},
-            GameState::Editor => {},
+            }
+            GameState::Menu => {}
+            GameState::Cutscene => {}
+            GameState::Editor => {}
         }
     }
 
@@ -79,30 +183,43 @@ impl Game {
                 // Draw the startup screen
                 clear_background(BLACK);
                 draw_text("Startup", 0.0, 32.0, 32.0, WHITE);
-            },
+            }
             GameState::Loading => {
                 // Draw the loading screen
                 clear_background(BLACK);
                 draw_text("Loading", 0.0, 32.0, 32.0, WHITE);
-            },
+            }
             GameState::TitleScreen => {
-                set_camera(&Camera2D{
+                set_camera(&Camera2D {
                     zoom: (0.001, -0.001 * screen_width() / screen_height()).into(),
                     ..Default::default()
                 });
                 clear_background(BLACK);
                 draw_text("Highground", -575.0, -160.0, 256.0, WHITE);
                 draw_text("-- Press Enter--", -275.0, 0.0, 64.0, WHITE);
-            },
+            }
             GameState::Gameplay => {
                 // Draw the world
                 let world = self.world.clone();
                 let world = world.borrow();
                 world.draw(self);
-            },
-            GameState::Menu => {},
-            GameState::Cutscene => {},
-            GameState::Editor => {},
+
+                // Draw the worlds render texture
+                set_default_camera();
+                draw_texture_ex(self.render_target.texture, 0.0, 0.0, WHITE, DrawTextureParams {
+                    dest_size: Some((screen_width(), screen_height()).into()),
+                    source: Some(Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        w: self.target_resolution.0,
+                        h: self.target_resolution.1,
+                    }),
+                    ..Default::default()
+                });
+            }
+            GameState::Menu => {}
+            GameState::Cutscene => {}
+            GameState::Editor => {}
         }
     }
 
@@ -122,7 +239,7 @@ fn conf() -> Conf {
         // Disable anti-aliasing
         sample_count: 0,
         ..Default::default()
-    }
+    };
 }
 
 /** The entrypoint, just a standard macroquad entrypoint */
